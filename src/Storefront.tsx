@@ -20,7 +20,8 @@ export type Product = {
 
 type Brand = {
   siteName: string;
-  logoUrl: string; // URL hoặc blob khi upload
+  logoUrl: string;
+  heroUrl?: string; // ảnh banner Hero
 };
 
 /* =================== Seed data ================= */
@@ -77,10 +78,10 @@ export const cartTotal = (cart: CartItem[], products: Product[]): number =>
   w.__storefront_more_tests_done__ = true;
 
   const v = formatVND(1000);
-  console.assert(/₫/.test(v) || /VND/.test(v), "formatVND should return VND currency");
+  console.assert(/₫/.test(v) || /VND/.test(v), "formatVND returns VND currency");
   const prods: Product[] = [{ id: "a", name: "A", category: "Top Up", price: 1000, rating: 4, image: "" }];
   const ct = cartTotal([{ id: "a", qty: 3 }], prods);
-  console.assert(ct === 3000, "cartTotal should multiply price*qty");
+  console.assert(ct === 3000, "cartTotal = price * qty");
 })();
 
 /* ================ Admin Form (Create Product) ================ */
@@ -135,17 +136,35 @@ function AdminBrandSettings({
 }) {
   const [siteName, setSiteName] = useState<string>(brand.siteName);
   const [logoUrl, setLogoUrl] = useState<string>(brand.logoUrl);
+  const [heroUrl, setHeroUrl] = useState<string>(brand.heroUrl || "");
 
-  const onFile = (file: File) => {
-    const url = URL.createObjectURL(file);
-    setLogoUrl(url);
+  const onLogoFile = (file: File) => setLogoUrl(URL.createObjectURL(file));
+  const onHeroFile = (file: File) => setHeroUrl(URL.createObjectURL(file));
+
+  const save = () => {
+    const next = {
+      siteName: siteName || "Shop Code",
+      logoUrl: logoUrl || "",
+      heroUrl: heroUrl || "",
+    };
+    setBrand(next);
+    try { localStorage.setItem("brand_settings", JSON.stringify(next)); } catch {}
+    alert("Đã lưu cài đặt thương hiệu");
+  };
+
+  const reset = () => {
+    const def = { siteName: "Shop Code", logoUrl: "", heroUrl: "" };
+    setSiteName(def.siteName);
+    setLogoUrl(def.logoUrl);
+    setHeroUrl(def.heroUrl);
   };
 
   return (
     <div className="mt-6 border rounded-xl p-4">
       <div className="font-semibold mb-3">Cài đặt thương hiệu</div>
-      <div className="grid md:grid-cols-3 gap-3 items-start">
-        <div className="md:col-span-2 space-y-3">
+      <div className="grid md:grid-cols-3 gap-4">
+        {/* Nhập liệu */}
+        <div className="md:col-span-2 space-y-4">
           <div>
             <label className="text-sm text-neutral-600">Tên website</label>
             <input
@@ -155,61 +174,88 @@ function AdminBrandSettings({
               placeholder="Tên hiển thị (vd: Shop Code)"
             />
           </div>
-          <div>
-            <label className="text-sm text-neutral-600">Logo URL</label>
-            <input
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="Dán URL ảnh (hoặc dùng Upload ảnh)"
-            />
-          </div>
-          <div className="flex gap-2">
-            <label className="px-3 py-2 rounded-xl border text-sm cursor-pointer">
-              Upload ảnh
+
+          <div className="grid md:grid-cols-2 gap-3">
+            {/* Logo */}
+            <div>
+              <label className="text-sm text-neutral-600">Logo URL</label>
               <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onFile(f);
-                }}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                value={logoUrl}
+                onChange={(e) => setLogoUrl(e.target.value)}
+                placeholder="Dán URL ảnh (hoặc dùng Upload ảnh)"
               />
-            </label>
-            <button
-              className="px-3 py-2 rounded-xl bg-indigo-600 text-white"
-              onClick={() => {
-                const next = { siteName: siteName || "Shop Code", logoUrl: logoUrl || "" };
-                setBrand(next);
-                try { localStorage.setItem("brand_settings", JSON.stringify(next)); } catch {}
-                alert("Đã lưu cài đặt thương hiệu");
-              }}
-            >
+              <label className="mt-2 inline-flex px-3 py-2 rounded-xl border text-sm cursor-pointer">
+                Upload logo
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onLogoFile(f);
+                  }}
+                />
+              </label>
+            </div>
+
+            {/* Banner */}
+            <div>
+              <label className="text-sm text-neutral-600">Ảnh banner (Hero) URL</label>
+              <input
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                value={heroUrl}
+                onChange={(e) => setHeroUrl(e.target.value)}
+                placeholder="Dán URL ảnh hoặc upload"
+              />
+              <label className="mt-2 inline-flex px-3 py-2 rounded-xl border text-sm cursor-pointer">
+                Upload banner
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onHeroFile(f);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <button className="px-3 py-2 rounded-xl bg-indigo-600 text-white" onClick={save}>
               Lưu
             </button>
-            <button
-              className="px-3 py-2 rounded-xl border"
-              onClick={() => {
-                const def = { siteName: "Shop Code", logoUrl: "" };
-                setSiteName(def.siteName);
-                setLogoUrl(def.logoUrl);
-              }}
-            >
+            <button className="px-3 py-2 rounded-xl border" onClick={reset}>
               Khôi phục mặc định
             </button>
           </div>
         </div>
 
-        <div className="border rounded-xl p-3 bg-white">
-          <div className="text-sm text-neutral-500 mb-2">Xem trước logo</div>
-          <div className="flex items-center gap-3">
-            {logoUrl ? (
-              <img src={logoUrl} alt="logo preview" className="h-12 w-12 rounded-xl object-cover ring-1 ring-neutral-200" />
-            ) : (
-              <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600" />
-            )}
-            <div className="font-semibold">{siteName || "Shop Code"}</div>
+        {/* Xem trước */}
+        <div className="space-y-4">
+          <div className="border rounded-xl p-3 bg-white">
+            <div className="text-sm text-neutral-500 mb-2">Xem trước logo</div>
+            <div className="flex items-center gap-3">
+              {logoUrl ? (
+                <img src={logoUrl} alt="logo preview" className="h-12 w-12 rounded-xl object-cover ring-1 ring-neutral-200" />
+              ) : (
+                <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600" />
+              )}
+              <div className="font-semibold">{siteName || "Shop Code"}</div>
+            </div>
+          </div>
+
+          <div className="border rounded-xl p-3 bg-white">
+            <div className="text-sm text-neutral-500 mb-2">Xem trước banner</div>
+            <div className="aspect-[16/10] w-full rounded-xl ring-1 ring-neutral-200 overflow-hidden bg-neutral-100">
+              <img
+                src={heroUrl || img("hero")}
+                alt="hero preview"
+                className="w-full h-full object-cover"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -250,9 +296,12 @@ export default function Storefront() {
   const [brand, setBrand] = useState<Brand>(() => {
     try {
       const raw = localStorage.getItem("brand_settings");
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        return { siteName: obj.siteName ?? "Shop Code", logoUrl: obj.logoUrl ?? "", heroUrl: obj.heroUrl ?? "" };
+      }
     } catch {}
-    return { siteName: "Shop Code", logoUrl: "" };
+    return { siteName: "Shop Code", logoUrl: "", heroUrl: "" };
   });
 
   // admin auth (không có đăng ký)
@@ -336,7 +385,7 @@ export default function Storefront() {
   const openPreview = (src: string, alt: string) => setPreview({ src, alt });
   const closePreview = () => setPreview(null);
 
-  // Close on ESC
+  // Close preview on ESC
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closePreview(); };
     window.addEventListener("keydown", onKey);
@@ -401,7 +450,7 @@ export default function Storefront() {
           </div>
           <div className="relative">
             <div className="aspect-[16/10] w-full rounded-3xl bg-white shadow-lg ring-1 ring-neutral-200 overflow-hidden">
-              <img src={img("hero")} alt="hero" className="w-full h-full object-cover"/>
+              <img src={brand.heroUrl || img("hero")} alt="hero" className="w-full h-full object-cover"/>
             </div>
             <div className="absolute -bottom-5 -right-5 bg-white rounded-2xl shadow ring-1 ring-neutral-200 px-4 py-3 text-sm">
               <div className="font-semibold">Tự động giao mã</div>
@@ -416,8 +465,8 @@ export default function Storefront() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="shrink-0 text-sm text-neutral-500">Danh mục:</div>
           <div className="flex gap-2 flex-wrap">
-            {["All","Top Up","Gift Card","Game Pass","Bundle"].map(c=>(
-              <button key={c} onClick={()=>setCategory(c as Category)} className={`px-3 py-1.5 rounded-full border text-sm ${category===c?"bg-neutral-900 text-white border-neutral-900":"border-neutral-300 hover:bg-neutral-100"}`}>{c}</button>
+            {(["All","Top Up","Gift Card","Game Pass","Bundle"] as const).map(c=>(
+              <button key={c} onClick={()=>setCategory(c)} className={`px-3 py-1.5 rounded-full border text-sm ${category===c?"bg-neutral-900 text-white border-neutral-900":"border-neutral-300 hover:bg-neutral-100"}`}>{c}</button>
             ))}
           </div>
           <div className="flex-1" />
