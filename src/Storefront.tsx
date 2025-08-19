@@ -1,3 +1,4 @@
+
 import React, { useMemo, useState } from "react";
 
 /* =================== Assets =================== */
@@ -23,6 +24,46 @@ type Brand = {
   logoUrl: string;
   heroUrl?: string; // ảnh banner Hero
 };
+
+/* --------- Users / Orders (LocalStorage) --------- */
+type User = {
+  id: string;
+  name: string;        // tài khoản (không dùng email)
+  password: string;    // DEMO ONLY
+  balance: number;     // VND
+  createdAt: number;
+};
+
+type OrderItem = { productId: string; qty: number; price: number };
+type Order = { id: string; userId: string; total: number; items: OrderItem[]; createdAt: number };
+
+const USERS_KEY = "users_store";
+const ORDERS_KEY = "orders_store";
+
+function loadUsers(): User[] {
+  try { const raw = localStorage.getItem(USERS_KEY); if (raw) return JSON.parse(raw); } catch {}
+  return [];
+}
+function saveUsers(list: User[]) {
+  try { localStorage.setItem(USERS_KEY, JSON.stringify(list)); } catch {}
+}
+function findUser(list: User[], name: string) {
+  return list.find(u => u.name.toLowerCase() === name.toLowerCase());
+}
+function adjustBalance(list: User[], userId: string, delta: number) {
+  return list.map(u => u.id === userId ? { ...u, balance: Math.max(0, u.balance + delta) } : u);
+}
+
+function loadOrders(): Order[] {
+  try { const raw = localStorage.getItem(ORDERS_KEY); if (raw) return JSON.parse(raw); } catch {}
+  return [];
+}
+function saveOrders(list: Order[]) {
+  try { localStorage.setItem(ORDERS_KEY, JSON.stringify(list)); } catch {}
+}
+function ordersOfUser(list: Order[], userId: string) {
+  return list.filter(o => o.userId === userId).sort((a,b)=>b.createdAt - a.createdAt);
+}
 
 /* =================== Seed data ================= */
 const SEED: readonly Product[] = [
@@ -355,6 +396,17 @@ export default function Storefront() {
   }, []);
   const logout = () => { setUser(null); try { localStorage.removeItem("demo_user"); } catch {} };
 
+  // Users store
+  const [users, setUsers] = useState<User[]>(()=>loadUsers());
+  React.useEffect(()=>{ saveUsers(users); }, [users]);
+
+  // Orders store
+  const [orders, setOrders] = useState<Order[]>(()=>loadOrders());
+  React.useEffect(()=>{ saveOrders(orders); }, [orders]);
+
+  // Modal xem đơn của user
+  const [myOrdersOpen, setMyOrdersOpen] = useState(false);
+
   // Derived lists
   const filtered = useMemo(() => {
     let list = products.filter(
@@ -376,7 +428,42 @@ export default function Storefront() {
   const decItem    = (id: string) => setCart(prev => decCart(prev, id));
   const incItem    = (id: string) => setCart(prev => incCart(prev, id));
   const removeItem = (id: string) => setCart(prev => removeCart(prev, id));
-  const checkout   = () => alert("Demo checkout: hãy nối VNPay/MoMo/Stripe…");
+
+  // CHECKOUT bằng số dư
+  const checkout = () => {
+    if (!user) { alert("Vui lòng đăng nhập user trước khi thanh toán."); return; }
+    const u = findUser(users, user.name);
+    if (!u) { alert("Không tìm thấy user."); return; }
+
+    const grandTotal = total;
+    if (grandTotal <= 0) { alert("Giỏ hàng đang trống."); return; }
+    if (u.balance < grandTotal) {
+      alert(`Số dư không đủ. Cần ${formatVND(grandTotal)} nhưng chỉ có ${formatVND(u.balance)}.`);
+      return;
+    }
+
+    // Gộp item từ giỏ
+    const items: OrderItem[] = cart.map(it => {
+      const p = products.find(x => x.id === it.id)!;
+      return { productId: p.id, qty: it.qty, price: p.price };
+    });
+
+    const newOrder: Order = {
+      id: "o_" + Math.random().toString(36).slice(2),
+      userId: u.id,
+      total: grandTotal,
+      items,
+      createdAt: Date.now(),
+    };
+
+    setUsers(prev => adjustBalance(prev, u.id, -grandTotal));
+    setOrders(prev => [newOrder, ...prev]);
+    setCart([]);
+    setCartOpen(false);
+
+    const after = (findUser(adjustBalance(users, u.id, -grandTotal), user.name)?.balance) ?? (u.balance - grandTotal);
+    alert(`Thanh toán thành công! Đã trừ ${formatVND(grandTotal)}. Số dư còn lại: ${formatVND(after)}.`);
+  };
 
   const CATEGORIES: readonly Category[] = ["All","Top Up","Gift Card","Game Pass","Bundle"];
 
@@ -423,6 +510,15 @@ export default function Storefront() {
           ) : (
             <div className="flex items-center gap-2">
               <span className="hidden md:inline text-sm text-neutral-600">Xin chào, <strong>{user.name}</strong></span>
+              <span className="hidden md:inline text-sm text-neutral-600">
+                • Số dư: <strong>{formatVND((findUser(users, user.name)?.balance) ?? 0)}</strong>
+              </span>
+              <button
+                onClick={()=>setMyOrdersOpen(true)}
+                className="px-3 py-2 rounded-xl border border-neutral-300 hover:bg-neutral-100 text-sm"
+              >
+                Đơn của tôi
+              </button>
               <button onClick={logout} className="px-3 py-2 rounded-xl border border-neutral-300 hover:bg-neutral-100 text-sm">Đăng xuất</button>
             </div>
           )}
@@ -609,11 +705,34 @@ export default function Storefront() {
           </div>
           <form className="mt-4 space-y-3" onSubmit={(e)=>{e.preventDefault();
             setAuthError("");
-            if(!username.trim()){ setAuthError("Vui lòng nhập tài khoản"); return; }
+            const uname = username.trim();
+            if(!uname){ setAuthError("Vui lòng nhập tài khoản"); return; }
             if(password.length<6){ setAuthError("Mật khẩu tối thiểu 6 ký tự"); return; }
-            const u={name: username.trim()}; setUser(u);
-            try{localStorage.setItem("demo_user", JSON.stringify(u));}catch{}
-            setAuthOpen(false); setIsRegister(false);
+
+            if (isRegister) {
+              const existed = findUser(users, uname);
+              if (existed) { setAuthError("Tài khoản đã tồn tại"); return; }
+              const u: User = {
+                id: "u_" + Math.random().toString(36).slice(2),
+                name: uname,
+                password,
+                balance: 0,
+                createdAt: Date.now()
+              };
+              setUsers(prev => [u, ...prev]);
+              setUser({ name: u.name });
+              try{localStorage.setItem("demo_user", JSON.stringify({ name: u.name }));}catch{}
+              setAuthOpen(false); setIsRegister(false);
+            } else {
+              const existed = findUser(users, uname);
+              if (!existed || existed.password !== password) {
+                setAuthError("Sai tài khoản hoặc mật khẩu");
+                return;
+              }
+              setUser({ name: existed.name });
+              try{localStorage.setItem("demo_user", JSON.stringify({ name: existed.name }));}catch{}
+              setAuthOpen(false);
+            }
           }}>
             <div>
               <label className="text-sm text-neutral-600">Tài khoản</label>
@@ -712,6 +831,9 @@ export default function Storefront() {
             {/* Cài đặt thương hiệu */}
             <AdminBrandSettings brand={brand} setBrand={setBrand} />
 
+            {/* Quản lý user */}
+            <AdminUsers users={users} setUsers={setUsers} />
+
             {/* Export/Import dữ liệu sản phẩm */}
             <div className="mt-6 flex flex-wrap gap-2">
               <button onClick={()=>{ const data = JSON.stringify(products, null, 2); const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'products.json'; a.click(); URL.revokeObjectURL(url); }} className="px-3 py-2 rounded-xl border border-neutral-300 text-sm">Export JSON</button>
@@ -773,7 +895,7 @@ export default function Storefront() {
 
       {/* ===== Image Preview Modal (phóng to ảnh) ===== */}
       {preview && (
-        <div className="fixed inset-0 z-[70]">
+        <div className="fixed inset-0 z=[70]">
           <div className="absolute inset-0 bg-black/70" onClick={closePreview} />
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-[95vw] max-h-[90vh]">
             <img src={preview.src} alt={preview.alt} className="max-w-[95vw] max-h-[90vh] object-contain rounded-xl shadow-2xl" />
@@ -781,6 +903,113 @@ export default function Storefront() {
           </div>
         </div>
       )}
+
+      {/* ===== My Orders Modal ===== */}
+      {myOrdersOpen && user && (
+        <div className="fixed inset-0 z-[65]">
+          <div className="absolute inset-0 bg-black/40" onClick={()=>setMyOrdersOpen(false)} />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(96vw,680px)] bg-white rounded-2xl shadow-xl ring-1 ring-neutral-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="font-bold text-lg">Đơn gần đây của {user.name}</div>
+              <button onClick={()=>setMyOrdersOpen(false)} className="p-2 rounded-lg hover:bg-neutral-100">✕</button>
+            </div>
+            <div className="max-h-[60vh] overflow-auto">
+              {(() => {
+                const u = findUser(users, user.name);
+                const list = u ? ordersOfUser(orders, u.id) : [];
+                if (list.length === 0) return <div className="text-neutral-500 text-sm">Chưa có đơn.</div>;
+                return (
+                  <div className="space-y-3">
+                    {list.map(o=>(
+                      <div key={o.id} className="border rounded-xl p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium">Đơn #{o.id.slice(2,8).toUpperCase()}</div>
+                          <div className="text-sm text-neutral-600">{new Date(o.createdAt).toLocaleString("vi-VN")}</div>
+                        </div>
+                        <div className="text-sm mt-1">Tổng: <b>{formatVND(o.total)}</b></div>
+                        <div className="mt-2 text-sm">
+                          {o.items.map((it,idx)=>{
+                            const p = products.find(x=>x.id===it.productId);
+                            return (
+                              <div key={idx} className="flex items-center justify-between py-1 border-t">
+                                <span>{p?.name ?? it.productId}</span>
+                                <span>x{it.qty} • {formatVND(it.price)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ========== Admin Users component (quản lý user) ========== */
+function AdminUsers({
+  users, setUsers,
+}: { users: User[]; setUsers: React.Dispatch<React.SetStateAction<User[]>>; }) {
+  const [q, setQ] = useState("");
+  const [delta, setDelta] = useState<number>(10000); // mặc định ±10k
+  const list = users.filter(u => u.name.toLowerCase().includes(q.trim().toLowerCase()));
+
+  return (
+    <div className="mt-8 border rounded-xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="font-semibold">Quản lý user</div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-neutral-500">Mức điều chỉnh</span>
+          <input type="number" className="border rounded-lg px-3 py-1 w-28"
+            value={delta} onChange={e=>setDelta(Number(e.target.value)||0)} />
+        </div>
+      </div>
+
+      <div className="mb-3 flex items-center gap-2">
+        <input value={q} onChange={e=>setQ(e.target.value)}
+          placeholder="Tìm theo tài khoản…" className="border rounded-lg px-3 py-2 w-full md:w-80" />
+        <span className="text-sm text-neutral-500">Có {list.length} user</span>
+      </div>
+
+      <div className="max-h-[36vh] overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-neutral-500">
+              <th className="py-2">Tài khoản</th>
+              <th className="py-2">Số dư</th>
+              <th className="py-2">Ngày tạo</th>
+              <th className="py-2">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map(u=>(
+              <tr key={u.id} className="border-t">
+                <td className="py-2 font-medium">{u.name}</td>
+                <td className="py-2">{formatVND(u.balance)}</td>
+                <td className="py-2">{new Date(u.createdAt).toLocaleString("vi-VN")}</td>
+                <td className="py-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button className="px-2 py-1 rounded border"
+                      onClick={()=>setUsers(prev=>adjustBalance(prev, u.id,  delta))}>+{formatVND(delta)}</button>
+                    <button className="px-2 py-1 rounded border"
+                      onClick={()=>setUsers(prev=>adjustBalance(prev, u.id, -delta))}>-{formatVND(delta)}</button>
+                    <button className="px-2 py-1 rounded border text-rose-600"
+                      onClick={()=>setUsers(prev=>prev.filter(x=>x.id!==u.id))}>Xoá user</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {list.length===0 && (
+              <tr><td colSpan={4} className="py-6 text-center text-neutral-500">Không có user</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,5 @@
-import React from 'react'
-import Storefront from './Storefront'
-
+import React from "react";
+import Storefront from "./Storefront";
 export default function App() {
-  return <Storefront />
+  return <Storefront />;
 }
